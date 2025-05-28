@@ -11,6 +11,7 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import os
 from lyricsgenius import Genius
 import requests
+from dotenv import load_dotenv
 
 app = Flask(__name__)
 
@@ -22,11 +23,16 @@ genius = Genius("qVNhO3eE4ze3oeAuJTSS3DY3mJaDviSMo8JYA9NfJQIDnx8bGQ4gnUd9cnC-IBK
 # Initialize the database
 db = SQLAlchemy(app)
 
+load_dotenv()
+
 # Initialize Spotify client
-sp_oauth = SpotifyOAuth(client_id=os.environ.get("SPOTIFY_CLIENT_ID"),
-                        client_secret=os.environ.get("SPOTIFY_CLIENT_SECRET"),
-                        redirect_uri=os.environ.get("NEXT_PUBLIC_SPOTIFY_REDIRECT_URI"),
-                        scope="user-library-read user-read-currently-playing")
+sp_oauth = SpotifyOAuth(
+    client_id=os.environ.get("SPOTIFY_CLIENT_ID"),
+    client_secret=os.environ.get("SPOTIFY_CLIENT_SECRET"),
+    redirect_uri=os.environ.get("NEXT_PUBLIC_SPOTIFY_REDIRECT_URI"),
+    scope="user-library-read user-read-currently-playing",
+    # cache_path=".spotipyoauthcache"
+)
 
 # Load trained model & label encoder
 model = load_model("mood_prediction_lstm.h5")
