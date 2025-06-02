@@ -22,7 +22,7 @@ app = Flask(__name__)
 CORS(app) 
 
 # Configure the database URI
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'  # SQLite database file
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.d'  # SQLite database file
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 genius = Genius("qVNhO3eE4ze3oeAuJTSS3DY3mJaDviSMo8JYA9NfJQIDnx8bGQ4gnUd9cnC-IBKJ")
@@ -55,7 +55,24 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password = db.Column(db.String(120), nullable=False)
+    
 
+
+# New Model to store mood prediction arrays
+class MoodPrediction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    mood_numbers = db.Column(db.Text, nullable=False)  # Store array as JSON string
+    created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+    
+    def get_mood_numbers(self):
+        """Convert JSON string back to list"""
+        return json.loads(self.mood_numbers)
+    
+    def set_mood_numbers(self, numbers_list):
+        """Convert list to JSON string for storage"""
+        self.mood_numbers = json.dumps(numbers_list)
+        
 # Create the database tables
 with app.app_context():
     db.create_all()
@@ -170,24 +187,136 @@ def clean_lyrics(raw_lyrics):
     return text.strip()
 
 
+
+
+
+
+
+def calculate_mood_number(label, score):
+    """
+    Calculate mood number (1-10) based on label and score
+    """
+    # Define mood mappings - positive emotions get higher base values
+    mood_mappings = {
+        'joy': 8,
+        'happiness': 8,
+        'love': 8,
+        'excitement': 7,
+        'surprise': 6,
+        'neutral': 5,
+        'fear': 4,
+        'anger': 3,
+        'disgust': 3,
+        'sadness': 2,
+        'sad': 2
+    }
+    
+    # Get base score for the emotion (default to 5 for unknown emotions)
+    base_score = mood_mappings.get(label.lower(), 5)
+    
+    # Adjust based on confidence score
+    # Score ranges from 0 to 1, we'll use it to fine-tune the base score
+    if score >= 0.8:  # High confidence
+        adjustment = 1
+    elif score >= 0.6:  # Medium confidence
+        adjustment = 0
+    else:  # Low confidence
+        adjustment = -1
+    
+    # Calculate final mood number
+    mood_number = base_score + adjustment
+    
+    # Ensure it's within 1-10 range
+    mood_number = max(1, min(10, mood_number))
+    
+    return mood_number
+
+
+
+# @app.route('/predict_mood', methods=['POST'])
+# def predict_mood():
+#     data = request.json
+#     lyrics = data.get('lyrics')
+#     if not lyrics:
+#         return jsonify({"error": "No lyrics provided"}), 400
+
+#     cleaned_lyrics = clean_lyrics(lyrics)
+#     print(cleaned_lyrics)  # Debugging Output
+    
+    
+#     if not cleaned_lyrics:
+#         return jsonify({"error": "No valid lyrics found after cleaning"}), 400
+
+   
+#     result = sentiment_analyzer(cleaned_lyrics)
+
+#     return jsonify({"predicted_mood": result}), 200
+
+
 @app.route('/predict_mood', methods=['POST'])
 def predict_mood():
     data = request.json
     lyrics = data.get('lyrics')
+    user_id = data.get('user_id')  # Add user_id to the request
+    user_id = int(user_id)
+    print(user_id)  # Debugging Output
+    
     if not lyrics:
         return jsonify({"error": "No lyrics provided"}), 400
+    
+    if not user_id:
+        return jsonify({"error": "No user_id provided"}), 400
+    
+    # Check if user exists
+    user = User.query.get(2)
+    print(user)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
 
     cleaned_lyrics = clean_lyrics(lyrics)
     print(cleaned_lyrics)  # Debugging Output
     
-    
     if not cleaned_lyrics:
         return jsonify({"error": "No valid lyrics found after cleaning"}), 400
 
-   
     result = sentiment_analyzer(cleaned_lyrics)
-
-    return jsonify({"predicted_mood": result}), 200
+    
+    # Extract label and score from the result
+    predicted_mood = result[0]  # Assuming result is a list with one prediction
+    label = predicted_mood['label']
+    score = predicted_mood['score']
+    
+    # Calculate mood number
+    mood_number = calculate_mood_number(label, score)
+    
+    # Get or create mood prediction record for the user
+    mood_prediction = MoodPrediction.query.filter_by(user_id=user_id).first()
+    
+    if mood_prediction:
+        # User already has a mood prediction record, add to existing array
+        current_numbers = mood_prediction.get_mood_numbers()
+        current_numbers.append(mood_number)
+        mood_prediction.set_mood_numbers(current_numbers)
+    else:
+        # Create new mood prediction record
+        mood_prediction = MoodPrediction(user_id=user_id)
+        mood_prediction.set_mood_numbers([mood_number])
+    
+    # Save to database
+    try:
+        if not MoodPrediction.query.filter_by(user_id=user_id).first():
+            db.session.add(mood_prediction)
+        db.session.commit()
+        
+        return jsonify({
+            "predicted_mood": result,
+            "mood_number": mood_number,
+            "total_predictions": len(mood_prediction.get_mood_numbers())
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Database error: {str(e)}"}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
