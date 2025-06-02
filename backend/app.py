@@ -105,28 +105,28 @@ def get_current_track():
         access_token = token_info['access_token']
         sp = spotipy.Spotify(auth=access_token)
         current_track = sp.current_user_playing_track()
-        # print(f"Current Track Data: {current_track}")  # Debugging Output
+        print(f"Current Track Data: {current_track}")  # Debugging Output
 
-        if current_track and current_track.get('item'):
-            track = current_track['item']
-            artist = track['artists'][0]['name']
-            song_name = track['name']
+        if not current_track or not current_track.get('item'):
+            return jsonify({"message": "No song is currently playing"}), 200
 
+        track = current_track['item']
+        artist = track['artists'][0]['name']
+        song_name = track['name']
 
-            # Fetch lyrics
-            song = genius.search_song(song_name, artist)
-            if song:
-                lyrics = song.lyrics
-                current_track['lyrics'] = lyrics
+        # Fetch lyrics
+        song = genius.search_song(song_name, artist)
+        if song:
+            lyrics = song.lyrics
+            current_track['lyrics'] = lyrics
 
-            print(current_track.get('lyrics'))
-            # print(f"Final Response Data: {current_track}")  # Debugging Output
+        print(current_track.get('lyrics'))
+        # print(f"Final Response Data: {current_track}")  # Debugging Output
 
         return jsonify(current_track), 200
     else:
         print("Failed to authenticate with Spotify.")  # Debugging Output
         return jsonify({"message": "Failed to authenticate with Spotify"}), 401
-    
 def clean_lyrics(raw_lyrics):
     if not raw_lyrics:
         return ""
@@ -180,16 +180,11 @@ def predict_mood():
     cleaned_lyrics = clean_lyrics(lyrics)
     print(cleaned_lyrics)  # Debugging Output
     
-    # max_chars = 1000
-    # if len(cleaned_lyrics) > max_chars:
-    #     cleaned_lyrics = cleaned_lyrics[:max_chars]
-
+    
     if not cleaned_lyrics:
         return jsonify({"error": "No valid lyrics found after cleaning"}), 400
 
-    # Predict mood
-    # prediction = model.predict(sentiment_sequence)
-    # predicted_mood = label_classes[np.argmax(prediction)]
+   
     result = sentiment_analyzer(cleaned_lyrics)
 
     return jsonify({"predicted_mood": result}), 200
