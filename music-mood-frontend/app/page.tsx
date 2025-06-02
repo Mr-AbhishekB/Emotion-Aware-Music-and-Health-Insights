@@ -14,10 +14,12 @@ import Dashboard from "@/components/dashboard"
 
 interface User {
   username: string
+  user_id?: string // ✅ Added to hold user_id from backend
 }
 
 interface AuthResponse {
   message: string
+  user_id?: string // ✅ Added to extract user_id from response
 }
 
 export default function Home() {
@@ -27,7 +29,7 @@ export default function Home() {
   const [success, setSuccess] = useState("")
 
   useEffect(() => {
-    // Check if user is already logged in (you might want to implement proper session management)
+    // Check if user is already logged in
     const savedUser = localStorage.getItem("user")
     if (savedUser) {
       setUser(JSON.parse(savedUser))
@@ -52,7 +54,8 @@ export default function Home() {
 
       if (response.ok) {
         if (endpoint === "login") {
-          const userData = { username }
+          // ✅ Store user_id from backend response
+          const userData = { username, user_id: data.user_id }
           setUser(userData)
           localStorage.setItem("user", JSON.stringify(userData))
           setSuccess("Login successful!")

@@ -17,12 +17,14 @@ from transformers import pipeline
 import tf_keras as keras
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import json
+
 
 app = Flask(__name__)
 CORS(app) 
 
 # Configure the database URI
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.d'  # SQLite database file
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'  # SQLite database file
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 genius = Genius("qVNhO3eE4ze3oeAuJTSS3DY3mJaDviSMo8JYA9NfJQIDnx8bGQ4gnUd9cnC-IBKJ")
@@ -84,8 +86,9 @@ def login():
     password = data.get('password')
 
     user = User.query.filter_by(username=username, password=password).first()
+    print("User data: ", user.id)
     if user:
-        return jsonify({"message": "Login successful"}), 200
+        return jsonify({"message": "Login successful" , "user_id": user.id}), 200
     else:
         return jsonify({"message": "Invalid credentials"}), 401
 
@@ -268,7 +271,7 @@ def predict_mood():
         return jsonify({"error": "No user_id provided"}), 400
     
     # Check if user exists
-    user = User.query.get(2)
+    user = User.query.filter_by(id=user_id).first()
     print(user)
     if not user:
         return jsonify({"error": "User not found"}), 404
@@ -317,6 +320,73 @@ def predict_mood():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"Database error: {str(e)}"}), 500
+    
+
+# Route to clear mood history for a user
+@app.route('/clear_mood_history/<int:user_id>', methods=['DELETE'])
+def clear_mood_history(user_id):
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    
+    mood_prediction = MoodPrediction.query.filter_by(user_id=user_id).first()
+    if mood_prediction:
+        db.session.delete(mood_prediction)
+        db.session.commit()
+    
+    return jsonify({"message": "Mood history cleared successfully"}), 200
+
+
+
+@app.route('/get_mood_average/<int:user_id>', methods=['GET'])
+def get_mood_average(user_id):
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    
+    mood_prediction = MoodPrediction.query.filter_by(user_id=user_id).first()
+    if not mood_prediction:
+        return jsonify({"error": "No mood data found for this user"}), 404
+    
+    mood_numbers = mood_prediction.get_mood_numbers()
+    
+    if not mood_numbers:
+        return jsonify({"error": "No mood predictions available"}), 404
+    
+    # Calculate average
+    average_mood = sum(mood_numbers) / len(mood_numbers)
+    
+    # Round to 2 decimal places for better readability
+    average_mood = round(average_mood, 2)
+    
+    return jsonify({
+        "user_id": user_id,
+        "username": user.username,
+        "mood_numbers": mood_numbers,
+        "total_predictions": len(mood_numbers),
+        "average_mood": average_mood,
+        "mood_interpretation": interpret_mood_average(average_mood)
+    }), 200
+
+def interpret_mood_average(average):
+    """
+    Provide interpretation of the average mood score
+    """
+    if average >= 8.0:
+        return "Very Positive"
+    elif average >= 6.5:
+        return "Positive"
+    elif average >= 5.5:
+        return "Slightly Positive"
+    elif average >= 4.5:
+        return "Neutral"
+    elif average >= 3.0:
+        return "Slightly Negative"
+    elif average >= 1.5:
+        return "Negative"
+    else:
+        return "Very Negative"
+
 
 if __name__ == '__main__':
     app.run(debug=True)
