@@ -12,8 +12,14 @@ import os
 from lyricsgenius import Genius
 import requests
 from dotenv import load_dotenv
+import re
+from transformers import pipeline
+import tf_keras as keras
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app) 
 
 # Configure the database URI
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'  # SQLite database file
@@ -35,9 +41,12 @@ sp_oauth = SpotifyOAuth(
 )
 
 # Load trained model & label encoder
-model = load_model("mood_prediction_lstm.h5")
-label_classes = np.load("label_classes.npy", allow_pickle=True)
-
+# model = load_model("rmodel.pkl")
+# label_classes = np.load("label_classes.npy", allow_pickle=True)
+sentiment_analyzer = pipeline("text-classification",
+                          model="j-hartmann/emotion-english-distilroberta-base",
+                          truncation=True,
+                          max_length=512)
 # Initialize VADER sentiment analyzer
 analyzer = SentimentIntensityAnalyzer()
 
@@ -68,51 +77,41 @@ def signup():
     data = request.json
     username = data.get('username')
     password = data.get('password')
-
-    new_user = User(username=username, password=password)
-    db.session.add(new_user)
-    db.session.commit()
-
-    return jsonify({"message": "Signup successful"}), 201
-
+    
+    # Check if user already exists
+    existing_user = User.query.filter_by(username=username).first()
+    if existing_user:
+        return jsonify({"message": "Username already exists"}), 400
+    
+    try:
+        new_user = User(username=username, password=password)
+        db.session.add(new_user)
+        db.session.commit()
+        return jsonify({"message": "Signup successful"}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Database error"}), 500
 
 @app.route('/get_current_track', methods=['GET'])
 def get_current_track():
     token_info = sp_oauth.get_cached_token()
-    print(f"Token Info: {token_info}")  # Debugging Output
+    # print(f"Token Info: {token_info}")  # Debugging Output
 
     if token_info:
         if 'refresh_token' in token_info:
             token_info = sp_oauth.refresh_access_token(token_info['refresh_token'])
-            print(f"Refreshed Token Info: {token_info}")  # Debugging Output
+            # print(f"Refreshed Token Info: {token_info}")  # Debugging Output
 
         access_token = token_info['access_token']
         sp = spotipy.Spotify(auth=access_token)
         current_track = sp.current_user_playing_track()
-        print(f"Current Track Data: {current_track}")  # Debugging Output
+        # print(f"Current Track Data: {current_track}")  # Debugging Output
 
         if current_track and current_track.get('item'):
             track = current_track['item']
-            track_id = track['id']
             artist = track['artists'][0]['name']
             song_name = track['name']
 
-            headers = {
-                "Authorization": f"Bearer {access_token}"
-            }
-            audio_features_url = f"https://api.spotify.com/v1/audio-features/{track_id}"
-            audio_response = requests.get(audio_features_url, headers=headers)
-
-            if audio_response.status_code == 200:
-                audio_features = audio_response.json()
-                current_track['audio_features'] = {
-                    "tempo": audio_features.get('tempo'),
-                    "danceability": audio_features.get('danceability'),
-                    "energy": audio_features.get('energy'),
-                    "valence": audio_features.get('valence')
-                }
-            else:
-                print(f"Failed to retrieve audio features: {audio_response.status_code}")
 
             # Fetch lyrics
             song = genius.search_song(song_name, artist)
@@ -120,45 +119,80 @@ def get_current_track():
                 lyrics = song.lyrics
                 current_track['lyrics'] = lyrics
 
-            print(f"Final Response Data: {current_track}")  # Debugging Output
+            print(current_track.get('lyrics'))
+            # print(f"Final Response Data: {current_track}")  # Debugging Output
 
         return jsonify(current_track), 200
     else:
         print("Failed to authenticate with Spotify.")  # Debugging Output
         return jsonify({"message": "Failed to authenticate with Spotify"}), 401
+    
+def clean_lyrics(raw_lyrics):
+    if not raw_lyrics:
+        return ""
+    
+    # Remove first 206 characters
+    text = raw_lyrics[206:]
+    
+    # Remove contributor information at the beginning
+    text = re.sub(r'^\d+\s+Contributors.*?Lyrics', '', text, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Remove everything up to and including "Read More" (song description/background info)
+    text = re.sub(r'^.*?Read More\s*', '', text, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Remove production credits in square brackets
+    text = re.sub(r'\[Produced by[^\]]*\]', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\[Video by[^\]]*\]', '', text, flags=re.IGNORECASE)
+    
+    # Remove section labels but keep the content
+    text = re.sub(r'\[(Chorus|Verse \d+|Bridge|Pre-Chorus|Post-Chorus|Outro|Intro|Hook)\]', '', text, flags=re.IGNORECASE)
+    
+    # Remove any remaining square bracket content (other metadata)
+    text = re.sub(r'\[[^\]]*\]', '', text)
+    
+    # Remove translation language mentions
+    text = re.sub(r'(Türkçe|Ελληνικά|Français|Deutsch|Español|Italiano|Português)', '', text, flags=re.IGNORECASE)
+    
+    # Remove multiple consecutive newlines and replace with single newline
+    text = re.sub(r'\n\s*\n', '\n', text)
+    
+    # Remove leading/trailing whitespace and newlines
+    text = text.strip()
+    
+    # Remove any remaining metadata patterns (URLs, special characters clusters)
+    text = re.sub(r'https?://[^\s]+', '', text)
+    text = re.sub(r'[^\w\s\n\'\.\,\!\?\-]', ' ', text)
+    
+    # Clean up extra spaces
+    text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r'\n\s+', '\n', text)
+    
+    return text.strip()
 
 
 @app.route('/predict_mood', methods=['POST'])
 def predict_mood():
     data = request.json
     lyrics = data.get('lyrics')
+    if not lyrics:
+        return jsonify({"error": "No lyrics provided"}), 400
 
-    # Perform sentiment analysis on the lyrics
-    sentiment_score = analyzer.polarity_scores(lyrics)["compound"]
+    cleaned_lyrics = clean_lyrics(lyrics)
+    print(cleaned_lyrics)  # Debugging Output
+    
+    # max_chars = 1000
+    # if len(cleaned_lyrics) > max_chars:
+    #     cleaned_lyrics = cleaned_lyrics[:max_chars]
 
-    # Normalize the sentiment score
-    scaler = MinMaxScaler()
-    sentiment_score_normalized = scaler.fit_transform([[sentiment_score]])
-
-    # Create sequences for LSTM input (example: using the last 10 sentiment scores)
-    sequence_length = 10
-    sentiment_sequence = get_recent_sentiment_scores(sequence_length)  # Implement this function to maintain a buffer of recent scores
-    sentiment_sequence.append(sentiment_score_normalized[0][0])
-    sentiment_sequence = sentiment_sequence[-sequence_length:]  # Keep only the last 10 scores
-
-    # Reshape for LSTM input
-    sentiment_sequence = np.array(sentiment_sequence).reshape(1, sequence_length, 1)
+    if not cleaned_lyrics:
+        return jsonify({"error": "No valid lyrics found after cleaning"}), 400
 
     # Predict mood
-    prediction = model.predict(sentiment_sequence)
-    predicted_mood = label_classes[np.argmax(prediction)]
+    # prediction = model.predict(sentiment_sequence)
+    # predicted_mood = label_classes[np.argmax(prediction)]
+    result = sentiment_analyzer(cleaned_lyrics)
 
-    return jsonify({"predicted_mood": predicted_mood}), 200
-
-def get_recent_sentiment_scores(sequence_length):
-    # Implement this function to maintain a buffer of recent sentiment scores
-    # For simplicity, we return a dummy list here
-    return [0.5] * sequence_length
+    return jsonify({"predicted_mood": result}), 200
 
 if __name__ == '__main__':
     app.run(debug=True)
