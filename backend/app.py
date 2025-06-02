@@ -323,7 +323,7 @@ def predict_mood():
     
 
 # Route to clear mood history for a user
-@app.route('/clear_mood_history/<int:user_id>', methods=['DELETE'])
+@app.route('/logout/<int:user_id>', methods=['DELETE'])
 def clear_mood_history(user_id):
     user = User.query.get(user_id)
     if not user:

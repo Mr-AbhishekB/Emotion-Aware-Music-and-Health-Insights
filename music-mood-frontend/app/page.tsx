@@ -72,8 +72,17 @@ export default function Home() {
     }
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+            const userStr = localStorage.getItem("user")
+        const userId = userStr ? JSON.parse(userStr).user_id : undefined
     setUser(null)
+    const res = await fetch(`http://localhost:5000/logout/`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ user_id: userId }),
+    })
     localStorage.removeItem("user")
     setSuccess("Logged out successfully")
   }
