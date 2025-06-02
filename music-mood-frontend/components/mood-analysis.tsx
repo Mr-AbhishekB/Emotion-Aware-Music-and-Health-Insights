@@ -39,6 +39,27 @@ const emotionEmojis: Record<string, string> = {
   neutral: "😐",
 }
 
+// Map each emotion to a category
+const emotionCategoryMap: Record<string, "positive" | "negative" | "neutral"> = {
+  joy: "positive",
+  surprise: "positive",
+  anger: "negative",
+  fear: "negative",
+  sadness: "negative",
+  disgust: "negative",
+  neutral: "neutral",
+}
+
+// Display properties for each category
+const categoryDisplay: Record<
+  "positive" | "negative" | "neutral",
+  { label: string; emoji: string; color: string }
+> = {
+  positive: { label: "Positive", emoji: "😊", color: "bg-yellow-100 text-yellow-800 border-yellow-300" },
+  negative: { label: "Negative", emoji: "😢", color: "bg-blue-100 text-blue-800 border-blue-300" },
+  neutral: { label: "Neutral", emoji: "😐", color: "bg-gray-100 text-gray-800 border-gray-300" },
+}
+
 export default function MoodAnalysis({ prediction, analyzing, hasLyrics, onAnalyze }: MoodAnalysisProps) {
   if (!hasLyrics) {
     return (
@@ -84,43 +105,60 @@ export default function MoodAnalysis({ prediction, analyzing, hasLyrics, onAnaly
     )
   }
 
-  // Sort emotions by confidence score
-  const sortedEmotions = [...prediction.predicted_mood].sort((a, b) => b.score - a.score)
-  const primaryEmotion = sortedEmotions[0]
+  // Aggregate scores by category
+  const categoryScores: Record<"positive" | "negative" | "neutral", number> = {
+    positive: 0,
+    negative: 0,
+    neutral: 0,
+  }
+
+  prediction.predicted_mood.forEach(({ label, score }) => {
+    const category = emotionCategoryMap[label.toLowerCase()]
+    if (category) {
+      categoryScores[category] += score
+    }
+  })
+
+  // Prepare sorted categories, but only include those with a score > 0
+  const sortedCategories = Object.entries(categoryScores)
+    .map(([key, score]) => ({
+      key: key as "positive" | "negative" | "neutral",
+      ...categoryDisplay[key as "positive" | "negative" | "neutral"],
+      score,
+    }))
+    .filter((cat) => cat.score > 0) // <-- Only show non-zero categories
+    .sort((a, b) => b.score - a.score)
+
+  const primaryCategory = sortedCategories[0]
 
   return (
     <div className="space-y-6">
-      {/* Primary Emotion */}
+      {/* Primary Category */}
       <div className="text-center">
-        <div className="text-4xl mb-2">{emotionEmojis[primaryEmotion.label.toLowerCase()] || "🎵"}</div>
-        <h3 className="text-xl font-semibold capitalize mb-1">{primaryEmotion.label}</h3>
+        <div className="text-4xl mb-2">{primaryCategory.emoji}</div>
+        <h3 className="text-xl font-semibold capitalize mb-1">{primaryCategory.label}</h3>
         <p className="text-sm text-gray-600">
-          Primary emotion detected ({Math.round(primaryEmotion.score * 100)}% confidence)
+          Primary emotion detected ({Math.round(primaryCategory.score * 100)}% confidence)
         </p>
       </div>
 
-      {/* All Emotions */}
+      {/* All Categories */}
       <div className="space-y-3">
         <h4 className="font-medium text-sm text-gray-700">Emotion Breakdown:</h4>
-        {sortedEmotions.map((emotion, index) => {
-          const percentage = Math.round(emotion.score * 100)
-          const colorClass = emotionColors[emotion.label.toLowerCase()] || emotionColors.neutral
-
-          return (
-            <div key={emotion.label} className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <span className="text-lg">{emotionEmojis[emotion.label.toLowerCase()] || "🎵"}</span>
-                  <span className="capitalize font-medium">{emotion.label}</span>
-                </div>
-                <Badge variant="outline" className={colorClass}>
-                  {percentage}%
-                </Badge>
+        {sortedCategories.map((cat) => (
+          <div key={cat.key} className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <span className="text-lg">{cat.emoji}</span>
+                <span className="capitalize font-medium">{cat.label}</span>
               </div>
-              <Progress value={percentage} className="h-2" />
+              <Badge variant="outline" className={cat.color}>
+                {Math.round(cat.score * 100)}%
+              </Badge>
             </div>
-          )
-        })}
+            <Progress value={Math.round(cat.score * 100)} className="h-2" />
+          </div>
+        ))}
       </div>
 
       {/* Re-analyze Button */}

@@ -7,8 +7,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Music, Brain, LogOut, RefreshCw, Loader2, TrendingUp } from "lucide-react"
 import CurrentTrack from "@/components/current-track"
 import MoodAnalysis from "@/components/mood-analysis"
+
 import MoodAverageDisplay from "@/components/mood-average-display"
-// import MoodAverageDisplay from "@/components/mood-average-display"
 
 interface User {
   username: string
