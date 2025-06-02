@@ -4,9 +4,11 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Music, Brain, LogOut, RefreshCw, Loader2 } from "lucide-react"
+import { Music, Brain, LogOut, RefreshCw, Loader2, TrendingUp } from "lucide-react"
 import CurrentTrack from "@/components/current-track"
 import MoodAnalysis from "@/components/mood-analysis"
+import MoodAverageDisplay from "@/components/mood-average-display"
+// import MoodAverageDisplay from "@/components/mood-average-display"
 
 interface User {
   username: string
@@ -78,12 +80,14 @@ export default function Dashboard({ user, onLogout }: DashboardProps) {
     setError("")
 
     try {
+        const userStr = localStorage.getItem("user")
+        const userId = userStr ? JSON.parse(userStr).user_id : undefined // Get user_id from localStorage
       const response = await fetch("http://localhost:5000/predict_mood", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ lyrics }),
+        body: JSON.stringify({ lyrics , user_id: userId}), // Use user_id from localStorage
       })
 
       if (response.ok) {
@@ -105,9 +109,15 @@ export default function Dashboard({ user, onLogout }: DashboardProps) {
     fetchCurrentTrack()
   }, [])
 
+  // Get user ID for MoodAverageDisplay
+  const getUserId = () => {
+    const userStr = localStorage.getItem("user")
+    return userStr ? JSON.parse(userStr).user_id : 1
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 p-4">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-6xl mx-auto"> {/* Increased max-width for better layout */}
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center">
@@ -126,8 +136,8 @@ export default function Dashboard({ user, onLogout }: DashboardProps) {
           </Button>
         </div>
 
-        {/* Main Content */}
-        <div className="grid gap-6 md:grid-cols-2">
+        {/* Main Content - Updated Grid Layout */}
+        <div className="grid gap-6 lg:grid-cols-3 md:grid-cols-2">
           {/* Current Track Section */}
           <Card>
             <CardHeader>
@@ -180,6 +190,20 @@ export default function Dashboard({ user, onLogout }: DashboardProps) {
               />
             </CardContent>
           </Card>
+
+          {/* Mood Average Section - NEW */}
+          <Card className="lg:col-span-1 md:col-span-2 lg:col-start-3 lg:row-span-1">
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <TrendingUp className="mr-2 h-5 w-5" />
+                Mood Overview
+              </CardTitle>
+              <CardDescription>Your overall emotional journey</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <MoodAverageDisplay userId={getUserId()} />
+            </CardContent>
+          </Card>
         </div>
 
         {/* Error Display */}
@@ -197,6 +221,7 @@ export default function Dashboard({ user, onLogout }: DashboardProps) {
               <p>1. Play a song on your Spotify app (phone/desktop)</p>
               <p>2. Click "Refresh Track" to get your currently playing song</p>
               <p>3. The app will automatically analyze the mood of the lyrics</p>
+              <p>4. Check your "Mood Overview" to see your emotional patterns over time</p>
             </div>
           </CardContent>
         </Card>
