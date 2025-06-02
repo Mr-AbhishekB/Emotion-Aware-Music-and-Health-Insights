@@ -323,8 +323,10 @@ def predict_mood():
     
 
 # Route to clear mood history for a user
-@app.route('/logout/<int:user_id>', methods=['DELETE'])
-def clear_mood_history(user_id):
+@app.route('/logout', methods=['DELETE'])
+def clear_mood_history():
+    data = request.json
+    user_id = data.get('user_id')
     user = User.query.get(user_id)
     if not user:
         return jsonify({"error": "User not found"}), 404
